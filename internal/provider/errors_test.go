@@ -3,50 +3,47 @@ package provider
 import (
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestProviderError(t *testing.T) {
 	tests := []struct {
-		name          string
-		cause         error
-		statusCode    int
-		ErrorCategory ErrorCategory
-		want          string
+		name       string
+		cause      error
+		statusCode int
+		category   ErrorCategory
+		want       string
 	}{
 		{
-			name:          "category only",
-			cause:         nil,
-			statusCode:    0,
-			ErrorCategory: ErrorCategoryInvalidRequest,
-			want:          "provider error: invalid_request",
+			name:     "category only",
+			category: ErrorCategoryInvalidRequest,
+			want:     "provider error: invalid_request",
 		},
 		{
-			name:          "category + status code",
-			cause:         nil,
-			statusCode:    429,
-			ErrorCategory: ErrorCategoryRateLimited,
-			want:          "provider error: rate_limited (status 429)",
+			name:       "category + status code",
+			statusCode: 429,
+			category:   ErrorCategoryRateLimited,
+			want:       "provider error: rate_limited (status 429)",
 		},
 		{
-			name:          "full error",
-			cause:         errors.New("exceeded quota"),
-			statusCode:    429,
-			ErrorCategory: ErrorCategoryRateLimited,
-			want:          "provider error: rate_limited (status 429): exceeded quota",
+			name:       "full error",
+			cause:      errors.New("exceeded quota"),
+			statusCode: 429,
+			category:   ErrorCategoryRateLimited,
+			want:       "provider error: rate_limited (status 429): exceeded quota",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			providerErr := &ProviderError{
-				Category:   tt.ErrorCategory,
+				Category:   tt.category,
 				StatusCode: tt.statusCode,
 				Cause:      tt.cause,
 			}
 
-			if got := providerErr.Error(); got != tt.want {
-				t.Fatalf("Error() = %v, want %v", got, tt.want)
-			}
+			assert.Equal(t, tt.want, providerErr.Error())
 		})
 	}
 }
@@ -59,12 +56,8 @@ func TestProviderError_Is(t *testing.T) {
 		Cause:      cause,
 	}
 
-	if !errors.Is(providerErr, cause) {
-		t.Fatal("errors.Is() = false, want true for wrapped cause")
-	}
-
 	unrelated := errors.New("unrelated error")
-	if errors.Is(providerErr, unrelated) {
-		t.Fatal("errors.Is() = true, want false for unrelated error")
-	}
+
+	assert.ErrorIs(t, providerErr, cause)
+	assert.NotErrorIs(t, providerErr, unrelated)
 }
