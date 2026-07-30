@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/sergioazevedo/model-fleet/internal/provider"
@@ -13,121 +13,131 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGroqClient_Complete_DecodesResponse(t *testing.T) {
-	const response = `{
-		"choices": [{
-			"message": {
-				"role": "assistant",
-				"content": "Try pasta"
-			},
-			"finish_reason": "stop"
-		}],
-		"usage": {
-			"prompt_tokens": 10,
-			"completion_tokens": 2,
-			"total_tokens": 12
-		}
-	}`
+func TestGroqClient_Complete(t *testing.T) {
+	t.Run("encodes the request", func(t *testing.T) {
+		expectedJSON := `{
+			"model": "openai/gpt-oss-120b",
+			"messages": [{"role": "user","content": "Suggest a simple dinner"}],
+			"temperature": 0.2
+		}`
 
-	server := newJSONServer(t, response)
-	client := groq.New("test-api-key", server.Client())
-	deployment := provider.ModelDeployment{
-		ModelID:  "openai/gpt-oss-120b",
-		Endpoint: server.URL,
-	}
+		resultBody := `{"choices": [{"message": {"role": "assistant","content": "ok"},"finish_reason": "stop"}],"usage": {}}`
 
-	request := provider.CompletionRequest{
-		Messages: []provider.Message{
-			{
-				Role:    "user",
-				Content: "Suggest a simple dinner",
-			},
-		},
-	}
+		httpClient, spy := stubHTTPClient(resultBody, http.StatusOK)
+		client := groq.New("test-api-key", httpClient)
 
-	result, err := client.Complete(context.Background(), deployment, request)
-	require.NoError(t, err)
-
-	want := provider.CompletionResult{
-		Response: provider.CompletionResponse{
-			Message: provider.Message{
-				Role:    "assistant",
-				Content: "Try pasta",
-			},
-			FinishReason: "stop",
-		},
-		Usage: provider.Usage{
-			PromptTokens:     10,
-			CompletionTokens: 2,
-			TotalTokens:      12,
-		},
-	}
-
-	assert.Equal(t, want, result)
-}
-
-func TestGroqClient_Complete_EncodesRequest(t *testing.T) {
-	expectedJSON := `{
-		"model": "openai/gpt-oss-120b",
-		"messages": [
-			{
-				"role": "user",
-				"content": "Suggest a simple dinner"
-			}
-		],
-		"temperature": 0.2
-	}`
-
-	server := httptest.NewServer(http.HandlerFunc(func(
-		w http.ResponseWriter,
-		r *http.Request,
-	) {
-		reqBody, err := io.ReadAll(r.Body)
-		assert.NoError(t, err)
-		assert.JSONEq(t, expectedJSON, string(reqBody))
-
-		w.Header().Set("Content-Type", "application/json")
-		_, err = w.Write([]byte(`{}`))
-		assert.NoError(t, err)
-	}))
-	t.Cleanup(server.Close)
-
-	client := groq.New("test-api-key", server.Client())
-
-	temperature := 0.2
-
-	_, err := client.Complete(
-		context.Background(),
-		provider.ModelDeployment{
-			ModelID:  "openai/gpt-oss-120b",
-			Endpoint: server.URL,
-		},
-		provider.CompletionRequest{
-			Messages: []provider.Message{
-				{
-					Role:    "user",
-					Content: "Suggest a simple dinner",
+		_, err := client.Complete(
+			context.Background(),
+			testDeployment,
+			provider.CompletionRequest{
+				Messages: []provider.Message{
+					{Role: "user", Content: "Suggest a simple dinner"},
 				},
+				Temperature: ptr(0.2),
 			},
-			Temperature: &temperature,
-		},
-	)
-	require.NoError(t, err)
+		)
+
+		require.NoError(t, err)
+		require.NotNil(t, spy.request)
+		assert.Equal(t, http.MethodPost, spy.request.Method)
+		assert.Equal(t, "https://groq.test/chat/completions", spy.request.URL.String())
+		assert.Equal(t, "application/json", spy.request.Header.Get("Content-Type"))
+		assert.Equal(t, "Bearer test-api-key", spy.request.Header.Get("Authorization"))
+		assert.JSONEq(t, expectedJSON, spy.requestBody)
+	})
+
+	t.Run("decodes response", func(t *testing.T) {
+		const response = `{
+			"choices": [{
+				"message": {
+					"role": "assistant",
+					"content": "Try pasta"
+				},
+				"finish_reason": "stop"
+			}],
+			"usage": {
+				"prompt_tokens": 10,
+				"completion_tokens": 2,
+				"total_tokens": 12
+			}
+		}`
+
+		httpClient, _ := stubHTTPClient(response, http.StatusOK)
+		client := groq.New("test-api-key", httpClient)
+
+		result, err := client.Complete(
+			context.Background(),
+			testDeployment,
+			provider.CompletionRequest{
+				Messages: []provider.Message{
+					{Role: "user", Content: "Suggest a simple dinner"},
+				},
+				Temperature: ptr(0.2),
+			},
+		)
+		require.NoError(t, err)
+
+		want := provider.CompletionResult{
+			Response: provider.CompletionResponse{
+				Message: provider.Message{
+					Role:    "assistant",
+					Content: "Try pasta",
+				},
+				FinishReason: "stop",
+			},
+			Usage: provider.Usage{
+				PromptTokens:     10,
+				CompletionTokens: 2,
+				TotalTokens:      12,
+			},
+		}
+
+		assert.Equal(t, want, result)
+	})
+
 }
 
-func newJSONServer(t *testing.T, body string) *httptest.Server {
-	t.Helper()
+type requestSpy struct {
+	responseBody   string
+	responseStatus int
+	request        *http.Request
+	requestBody    string
+}
 
-	server := httptest.NewServer(http.HandlerFunc(func(
-		w http.ResponseWriter,
-		_ *http.Request,
-	) {
-		w.Header().Set("Content-Type", "application/json")
+func (s *requestSpy) RoundTrip(req *http.Request) (*http.Response, error) {
+	defer req.Body.Close()
 
-		_, err := w.Write([]byte(body))
-		assert.NoError(t, err)
-	}))
-	t.Cleanup(server.Close)
+	reqBody, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
 
-	return server
+	s.request = req
+	s.requestBody = string(reqBody)
+
+	return &http.Response{
+		StatusCode: s.responseStatus,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(s.responseBody)),
+	}, nil
+}
+
+func stubHTTPClient(responseBody string, responseStatus int) (*http.Client, *requestSpy) {
+	spy := &requestSpy{
+		responseBody:   responseBody,
+		responseStatus: responseStatus,
+	}
+
+	return &http.Client{
+		Transport: spy,
+	}, spy
+}
+
+var testDeployment = provider.ModelDeployment{
+	ModelID:  "openai/gpt-oss-120b",
+	Endpoint: "https://groq.test",
+}
+
+func ptr[T any](value T) *T {
+	return &value
 }

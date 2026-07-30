@@ -15,9 +15,22 @@ type ModelDeployment struct {
 }
 
 type CompletionRequest struct {
-	Messages    []Message
-	Tools       []Tool
-	Temperature *float64
+	Messages        []Message
+	Tools           []Tool
+	Temperature     *float64
+	ReasoningEffort *string
+	ResponseFormat  *ResponseFormat
+}
+
+type ResponseFormat string
+
+const (
+	ResponseFormatText ResponseFormat = "text"
+	ResponseFormatJSON ResponseFormat = "json_object"
+)
+
+func (rf ResponseFormat) String() string {
+	return string(rf)
 }
 
 type Message struct {
