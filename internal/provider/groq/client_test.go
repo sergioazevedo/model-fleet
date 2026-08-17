@@ -13,6 +13,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type requestSpy struct {
+	responseBody   string
+	responseStatus int
+	request        *http.Request
+	requestBody    string
+}
+
+var testDeployment = provider.ModelDeployment{
+	ModelID:  "openai/gpt-oss-120b",
+	Endpoint: "https://groq.test",
+}
+
 func TestGroqClient_Complete(t *testing.T) {
 	t.Run("encodes the request", func(t *testing.T) {
 		expectedJSON := `{
@@ -95,13 +107,84 @@ func TestGroqClient_Complete(t *testing.T) {
 		assert.Equal(t, want, result)
 	})
 
-}
+	t.Run("normalizes unsuccessful responses", func(t *testing.T) {
+		const response = `{
+			"error": {
+				"message": "provider message"
+			}
+		}`
 
-type requestSpy struct {
-	responseBody   string
-	responseStatus int
-	request        *http.Request
-	requestBody    string
+		tests := []struct {
+			name         string
+			status       int
+			wantCategory provider.ErrorCategory
+		}{
+			{
+				name:         "bad request",
+				status:       http.StatusBadRequest,
+				wantCategory: provider.ErrorCategoryInvalidRequest,
+			},
+			{
+				name:         "unprocessable entity",
+				status:       http.StatusUnprocessableEntity,
+				wantCategory: provider.ErrorCategoryInvalidRequest,
+			},
+			{
+				name:         "unauthorized",
+				status:       http.StatusUnauthorized,
+				wantCategory: provider.ErrorCategoryAuthenticationFailed,
+			},
+			{
+				name:         "forbidden",
+				status:       http.StatusForbidden,
+				wantCategory: provider.ErrorCategoryAuthenticationFailed,
+			},
+			{
+				name:         "model not found",
+				status:       http.StatusNotFound,
+				wantCategory: provider.ErrorCategoryModelUnavailable,
+			},
+			{
+				name:         "rate limited",
+				status:       http.StatusTooManyRequests,
+				wantCategory: provider.ErrorCategoryRateLimited,
+			},
+			{
+				name:         "internal server error",
+				status:       http.StatusInternalServerError,
+				wantCategory: provider.ErrorCategoryProviderUnavailable,
+			},
+			{
+				name:         "bad gateway",
+				status:       http.StatusBadGateway,
+				wantCategory: provider.ErrorCategoryProviderUnavailable,
+			},
+			{
+				name:         "service unavailable",
+				status:       http.StatusServiceUnavailable,
+				wantCategory: provider.ErrorCategoryProviderUnavailable,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				httpClient, _ := stubHTTPClient(response, tt.status)
+				client := groq.New("test-api-key", httpClient)
+
+				_, err := client.Complete(
+					context.Background(),
+					testDeployment,
+					provider.CompletionRequest{},
+				)
+
+				var providerErr *provider.ProviderError
+				require.ErrorAs(t, err, &providerErr)
+				assert.Equal(t, tt.wantCategory, providerErr.Category)
+				assert.Equal(t, tt.status, providerErr.StatusCode)
+				assert.EqualError(t, providerErr.Cause, "provider message")
+			})
+		}
+	})
 }
 
 func (s *requestSpy) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -131,11 +214,6 @@ func stubHTTPClient(responseBody string, responseStatus int) (*http.Client, *req
 	return &http.Client{
 		Transport: spy,
 	}, spy
-}
-
-var testDeployment = provider.ModelDeployment{
-	ModelID:  "openai/gpt-oss-120b",
-	Endpoint: "https://groq.test",
 }
 
 func ptr[T any](value T) *T {

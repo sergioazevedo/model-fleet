@@ -3,6 +3,7 @@ package groq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,6 +30,12 @@ type groqRequest struct {
 type groqResponse struct {
 	Choices []choice `json:"choices"`
 	Usage   usage    `json:"usage"`
+}
+
+type groqErrorResponse struct {
+	Error struct {
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 type choice struct {
@@ -106,8 +113,7 @@ func (c *GroqClient) Complete(
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return provider.CompletionResult{}, fmt.Errorf("groq api error: status=%d body=%s", resp.StatusCode, string(bodyBytes))
+		return provider.CompletionResult{}, normalizeErrorResponse(resp)
 	}
 
 	result, err := decodeResponse(resp)
@@ -116,7 +122,46 @@ func (c *GroqClient) Complete(
 	}
 
 	return result, nil
+}
 
+func normalizeErrorResponse(resp *http.Response) *provider.ProviderError {
+	var category provider.ErrorCategory
+
+	statusCode := resp.StatusCode
+	switch {
+	// 429 is a special case for rate limiting, so we handle it explicitly.
+	case statusCode == http.StatusTooManyRequests:
+		category = provider.ErrorCategoryRateLimited
+	// 401 and 403 as authentication errors
+	case statusCode == http.StatusUnauthorized ||
+		statusCode == http.StatusForbidden:
+		category = provider.ErrorCategoryAuthenticationFailed
+	// 404 is a special case for model unavailability, so we handle it explicitly.
+	case statusCode == http.StatusNotFound:
+		category = provider.ErrorCategoryModelUnavailable
+	// 500 and above are considered provider errors
+	case statusCode >= 500:
+		category = provider.ErrorCategoryProviderUnavailable
+	default:
+		category = provider.ErrorCategoryInvalidRequest
+	}
+
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+
+	var errResp groqErrorResponse
+	var cause error
+
+	if err := json.Unmarshal(bodyBytes, &errResp); err != nil {
+		cause = fmt.Errorf("failed to decode error response: %w", err)
+	} else if errResp.Error.Message != "" {
+		cause = errors.New(errResp.Error.Message)
+	}
+
+	return &provider.ProviderError{
+		Category:   category,
+		StatusCode: resp.StatusCode,
+		Cause:      cause,
+	}
 }
 
 func buildRequest(
