@@ -1,0 +1,5 @@
+{
+  "go.testEnvVars": {
+    "MODEL_FLEET_LIVE_TESTS": "1"
+  }
+}

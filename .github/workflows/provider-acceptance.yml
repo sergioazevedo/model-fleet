@@ -1,0 +1,36 @@
+name: Provider acceptance tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-acceptance
+  cancel-in-progress: true
+
+jobs:
+  live-provider-tests:
+    name: Live provider tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MODEL_FLEET_LIVE_TESTS: "1"
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run live provider tests
+        run: go test -race -count=1 -v ./internal/acceptance_tests/provider/...
