@@ -8,16 +8,21 @@ import (
 )
 
 type Config struct {
-	Deployments map[string]DeploymentConfig `yaml:"deployments"`
-	RoleRoutes  map[string]RoleRouteConfig  `yaml:"routes"`
+	ProviderConnections map[string]ProviderConnectionConfig `yaml:"provider_connections"`
+	Deployments         map[string]DeploymentConfig         `yaml:"deployments"`
+	RoleRoutes          map[string]RoleRouteConfig          `yaml:"routes"`
 }
 
-type DeploymentConfig struct {
+type ProviderConnectionConfig struct {
 	Provider      string `yaml:"provider"`
-	Model         string `yaml:"model"`
 	Endpoint      string `yaml:"endpoint"`
 	CredentialRef string `yaml:"credential_ref"`
 	QuotaPool     string `yaml:"quota_pool"`
+}
+
+type DeploymentConfig struct {
+	Connection string `yaml:"connection"`
+	Model      string `yaml:"model"`
 }
 type RoleRouteConfig struct {
 	DeploymentIDs []string `yaml:"deployments"`
@@ -40,7 +45,6 @@ func Load(reader io.Reader) (Config, error) {
 }
 
 func (c Config) validate() error {
-
 	for routeName, routeConfig := range c.RoleRoutes {
 		if len(routeConfig.DeploymentIDs) == 0 {
 			return fmt.Errorf("route %q has no deployments", routeName)
@@ -52,6 +56,24 @@ func (c Config) validate() error {
 					"route %q references unknown deployment %q",
 					routeName,
 					deploymentID,
+				)
+			}
+
+			//deployment must have a connection specified
+			if c.Deployments[deploymentID].Connection == "" {
+				return fmt.Errorf(
+					"deployment %q has no connection specified",
+					deploymentID,
+				)
+			}
+
+			//connection must exist in provider connections
+			connectionName := c.Deployments[deploymentID].Connection
+			if _, exists := c.ProviderConnections[connectionName]; !exists {
+				return fmt.Errorf(
+					"deployment %q references unknown connection %q",
+					deploymentID,
+					connectionName,
 				)
 			}
 		}

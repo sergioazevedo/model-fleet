@@ -1,10 +1,18 @@
-deployments:
-  groq-analyst:
+provider_connections:
+  groq:
     provider: groq
-    model: openai/gpt-oss-120b
     endpoint: https://api.groq.com/openai/v1
     credential_ref: GROQ_API_KEY
     quota_pool: groq-personal
+
+deployments:
+  groq-analyst:
+    model: openai/gpt-oss-120b
+    connection: groq
+
+  mistral-analyst:
+    connection: mistral-personal
+    model: mistral-small-2603
 
 routes:
   meal-planner/analyst:

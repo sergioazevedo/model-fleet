@@ -16,10 +16,8 @@ deployments:
     model: openai/gpt-oss-120b
     connection: groq
 
-  mistral-analyst:
-    model: mistral-small-2603
-    connection: mistral
-
 routes:
   meal-planner/analyst:
     deployments:
+      - groq-analyst
+      - mistral-analyst
