@@ -18,7 +18,9 @@ guarantees.
 
 ## Status
 
-Planning and Milestone 1 development.
+Milestone 1 development. The Groq and Mistral provider clients, shared
+OpenAI-compatible transport, and static provider-connection and route
+configuration are complete. The current focus is the logical-role HTTP API.
 
 ## License
 
