@@ -5,15 +5,6 @@ import (
 	"encoding/json"
 )
 
-type ModelDeployment struct {
-	ID            string
-	Provider      string
-	ModelID       string
-	Endpoint      string
-	CredentialRef string
-	QuotaPool     string
-}
-
 type CompletionRequest struct {
 	Messages        []Message
 	Tools           []Tool
@@ -70,8 +61,8 @@ type CompletionResult struct {
 
 type Client interface {
 	Complete(
-		context.Context,
-		ModelDeployment,
-		CompletionRequest,
+		ctx context.Context,
+		modelID string,
+		request CompletionRequest,
 	) (CompletionResult, error)
 }

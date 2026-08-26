@@ -14,12 +14,14 @@ import (
 )
 
 type Client struct {
+	endpoint   string
 	apiKey     string
 	httpClient *http.Client
 }
 
-func New(apiKey string, httpClient *http.Client) *Client {
+func New(endpoint string, apiKey string, httpClient *http.Client) *Client {
 	return &Client{
+		endpoint:   endpoint,
 		apiKey:     apiKey,
 		httpClient: httpClient,
 	}
@@ -27,12 +29,13 @@ func New(apiKey string, httpClient *http.Client) *Client {
 
 func (c *Client) Complete(
 	ctx context.Context,
-	deployment provider.ModelDeployment,
+	modelID string,
 	request provider.CompletionRequest,
 ) (provider.CompletionResult, error) {
 	req, err := buildRequest(
 		ctx,
-		deployment,
+		c.endpoint,
+		modelID,
 		request,
 		map[string]string{
 			"Content-Type":  "application/json",
@@ -111,12 +114,13 @@ func normalizeErrorResponse(resp *http.Response) *provider.ProviderError {
 
 func buildRequest(
 	ctx context.Context,
-	deployment provider.ModelDeployment,
+	endpoint string,
+	modelID string,
 	request provider.CompletionRequest,
 	headers map[string]string,
 ) (*http.Request, error) {
-	targetURL := strings.TrimRight(deployment.Endpoint, "/") + "/chat/completions"
-	body, err := encodeRequestBody(deployment, request)
+	targetURL := strings.TrimRight(endpoint, "/") + "/chat/completions"
+	body, err := encodeRequestBody(modelID, request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode request body: %w", err)
 	}
@@ -139,7 +143,7 @@ func buildRequest(
 }
 
 func encodeRequestBody(
-	deployment provider.ModelDeployment,
+	modelID string,
 	req provider.CompletionRequest,
 ) (string, error) {
 	messages := []message{}
@@ -158,7 +162,7 @@ func encodeRequestBody(
 	}
 
 	reqBody := request{
-		Model:           deployment.ModelID,
+		Model:           modelID,
 		Messages:        messages,
 		Temperature:     req.Temperature,
 		ReasoningEffort: req.ReasoningEffort,

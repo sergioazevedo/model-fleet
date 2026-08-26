@@ -13,10 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var testDeployment = provider.ModelDeployment{
-	ModelID:  "openai/gpt-oss-120b",
-	Endpoint: "https://provider.test",
-}
+var modelID = "openai/gpt-oss-120b"
+var endpoint = "https://provider.test"
 
 func TestClient_Complete(t *testing.T) {
 	t.Run("encodes the request", func(t *testing.T) {
@@ -54,12 +52,12 @@ func TestClient_Complete(t *testing.T) {
 
 		resultBody := `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{}}`
 		httpClient, spy := providertest.NewHTTPClient(resultBody, http.StatusOK)
-		client := openaicompatible.New("test-api-key", httpClient)
+		client := openaicompatible.New(endpoint, "test-api-key", httpClient)
 		responseFormat := provider.ResponseFormatJSON
 
 		_, err := client.Complete(
 			context.Background(),
-			testDeployment,
+			modelID,
 			provider.CompletionRequest{
 				Messages: []provider.Message{
 					{Role: "user", Content: "Suggest a simple dinner"},
@@ -122,11 +120,11 @@ func TestClient_Complete(t *testing.T) {
 		}`
 
 		httpClient, _ := providertest.NewHTTPClient(response, http.StatusOK)
-		client := openaicompatible.New("test-api-key", httpClient)
+		client := openaicompatible.New(endpoint, "test-api-key", httpClient)
 
 		result, err := client.Complete(
 			context.Background(),
-			testDeployment,
+			modelID,
 			provider.CompletionRequest{
 				Messages: []provider.Message{
 					{Role: "user", Content: "Suggest a simple dinner"},
@@ -186,11 +184,11 @@ func TestClient_Complete(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				httpClient, _ := providertest.NewHTTPClient(response, tt.status)
-				client := openaicompatible.New("test-api-key", httpClient)
+				client := openaicompatible.New(endpoint, "test-api-key", httpClient)
 
 				_, err := client.Complete(
 					context.Background(),
-					testDeployment,
+					modelID,
 					provider.CompletionRequest{},
 				)
 

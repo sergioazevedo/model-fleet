@@ -43,14 +43,14 @@ func main() {
 	}
 
 	// Create the router handler with the fleet configuration and provider clients
-	handler := router.NewHandler(
+	routerHandler := router.NewHandler(
 		fleetConfig,
 		providers,
 	)
 
 	server := &http.Server{
 		Addr:    ":4545",
-		Handler: handler,
+		Handler: routerHandler,
 	}
 
 	// Start the server and log any errors
@@ -78,9 +78,9 @@ func buildProviderClients(
 
 		switch connConfig.Provider {
 		case "groq":
-			client = groq.New(apiKey, httpClient)
+			client = groq.New(connConfig.Endpoint, apiKey, httpClient)
 		case "mistral":
-			client = mistral.New(apiKey, httpClient)
+			client = mistral.New(connConfig.Endpoint, apiKey, httpClient)
 		default:
 			return nil, fmt.Errorf(
 				"connection %q uses unsupported provider: %q",

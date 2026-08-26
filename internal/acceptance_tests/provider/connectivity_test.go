@@ -14,7 +14,6 @@ import (
 
 type connectivityTestConfig struct {
 	APIKeyEnv string
-	Endpoint  string
 	ModelID   string
 	NewClient func(string, *http.Client) provider.Client
 }
@@ -38,10 +37,7 @@ func runConnectivityTest(t *testing.T, config connectivityTestConfig) {
 
 	result, err := client.Complete(
 		ctx,
-		provider.ModelDeployment{
-			ModelID:  config.ModelID,
-			Endpoint: config.Endpoint,
-		},
+		config.ModelID,
 		provider.CompletionRequest{
 			Messages: []provider.Message{
 				{Role: "user", Content: "Reply with one word: connected"},
