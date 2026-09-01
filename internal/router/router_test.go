@@ -26,7 +26,7 @@ func TestHandler_Completion(t *testing.T) {
 			ID:      "completion-1",
 			Object:  "chat.completion",
 			Created: 123,
-			Model:   "physical-model",
+			Model:   "provider-reported-alias",
 			Choices: []openaiwire.Choice{
 				{
 					Message: openaiwire.Message{
@@ -78,13 +78,18 @@ func TestHandler_Completion(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, res.Code)
 		assert.Equal(t, "application/json", res.Header().Get("Content-Type"))
+		assert.Equal(t, "groq", res.Header().Get("X-Model-Fleet-Provider"))
+		assert.Equal(t, "physical-model", res.Header().Get("X-Model-Fleet-ModelId"))
+		assert.Equal(t, "groq-analyst", res.Header().Get("X-Model-Fleet-DeploymentId"))
 		assert.Equal(t, "physical-model", capturedModelID)
 		assert.Equal(t, "meal-planner/analyst", capturedRequest.Model)
 		assert.Equal(t, responseFormat, capturedRequest.ResponseFormat)
 		require.Len(t, capturedRequest.Tools, 1)
 		assert.Equal(t, "find_recipe", capturedRequest.Tools[0].Function.Name)
 
-		expectedBody, err := json.Marshal(providerResponse)
+		expectedResponse := providerResponse
+		expectedResponse.Model = "physical-model"
+		expectedBody, err := json.Marshal(expectedResponse)
 		require.NoError(t, err)
 		assert.JSONEq(t, string(expectedBody), res.Body.String())
 	})
@@ -142,6 +147,12 @@ func TestHandler_Completion(t *testing.T) {
 
 func testConfig() config.Config {
 	return config.Config{
+		ProviderConnections: map[string]config.ProviderConnectionConfig{
+			"groq": {
+				Provider: "groq",
+				Endpoint: "https://api.groq.com",
+			},
+		},
 		RoleRoutes: map[string]config.RoleRouteConfig{
 			"meal-planner/analyst": {DeploymentIDs: []string{"groq-analyst"}},
 		},

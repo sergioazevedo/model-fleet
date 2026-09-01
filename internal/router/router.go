@@ -19,6 +19,12 @@ type Handler struct {
 	providerClients map[string]provider.Client
 }
 
+type routingMetadata struct {
+	ProviderName string
+	DeploymentID string
+	ModelID      string
+}
+
 func NewHandler(
 	fleetConfig config.Config,
 	providerClients map[string]provider.Client,
@@ -76,7 +82,18 @@ func (h *Handler) handleCompletion(
 	candidateDeploymentID := roleConfig.DeploymentIDs[0]
 	deploymentConfig := h.fleetConfig.Deployments[candidateDeploymentID]
 
+	connectionConfig, exists := h.fleetConfig.ProviderConnections[deploymentConfig.Connection]
+	if !exists {
+		writeError(
+			w,
+			http.StatusPreconditionFailed,
+			fmt.Sprintf("router.Handler.handleCompletion: no provider connection configured for model: %s", roleRoute),
+		)
+		return
+	}
+
 	targetClient, exists := h.providerClients[deploymentConfig.Connection]
+
 	if !exists {
 		writeError(
 			w,
@@ -101,12 +118,10 @@ func (h *Handler) handleCompletion(
 			case provider.ErrorCategoryRateLimited:
 				code = http.StatusTooManyRequests
 				if providerErr.RetryAfter > 0 {
+					seconds := (providerErr.RetryAfter + time.Second - 1) / time.Second
 					w.Header().Set(
 						"Retry-After",
-						strconv.FormatInt(
-							int64(providerErr.RetryAfter/time.Second),
-							10,
-						),
+						strconv.FormatInt(int64(seconds), 10),
 					)
 				}
 			case provider.ErrorCategoryModelUnavailable:
@@ -128,7 +143,13 @@ func (h *Handler) handleCompletion(
 		return
 	}
 
-	writeJSON(w, http.StatusOK, providerResp)
+	metadata := routingMetadata{
+		ProviderName: connectionConfig.Provider,
+		ModelID:      deploymentConfig.Model,
+		DeploymentID: candidateDeploymentID,
+	}
+
+	writeCompletionResponse(w, http.StatusOK, providerResp, metadata)
 }
 
 func parseRequest(r *http.Request) (openaiwire.ChatCompletionRequest, error) {
@@ -150,17 +171,29 @@ func parseRequest(r *http.Request) (openaiwire.ChatCompletionRequest, error) {
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(
-		w,
-		status,
-		openaiwire.ErrorResponse{
-			Error: openaiwire.Error{Message: message},
-		},
-	)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(openaiwire.ErrorResponse{
+		Error: openaiwire.Error{Message: message},
+	})
 }
 
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
+func writeCompletionResponse(
+	w http.ResponseWriter,
+	status int,
+	value openaiwire.ChatCompletionResponse,
+	metadata routingMetadata,
+) {
+	headers := w.Header()
+	headers.Set("Content-Type", "application/json")
+	headers.Set("X-Model-Fleet-Provider", metadata.ProviderName)
+	headers.Set("X-Model-Fleet-DeploymentId", metadata.DeploymentID)
+	headers.Set("X-Model-Fleet-ModelId", metadata.ModelID)
+
+	// Report the physical model selected by the router, even if the provider
+	// omits the model or returns an alias for it.
+	value.Model = metadata.ModelID
+
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
