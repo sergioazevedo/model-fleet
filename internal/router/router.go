@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sergioazevedo/model-fleet/internal/config"
+	"github.com/sergioazevedo/model-fleet/internal/openaiwire"
 	"github.com/sergioazevedo/model-fleet/internal/provider"
 )
 
@@ -30,7 +31,7 @@ func NewHandler(
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(
-		"POST /v1/completions",
+		"POST /v1/chat/completions",
 		handler.handleCompletion,
 	)
 
@@ -43,60 +44,58 @@ func (h *Handler) handleCompletion(
 ) {
 	completionReq, err := parseRequest(r)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("router.Handler.handleCompletion: failed to parse request: %v", err), http.StatusBadRequest)
+		writeError(
+			w,
+			http.StatusBadRequest,
+			fmt.Sprintf("router.Handler.handleCompletion: failed to parse request: %v", err),
+		)
 		return
 	}
 
-	// TODO: move this behaviour to Config and respect Demeter's Law.
-	// Check if the application is "meal-planner" and return an error if it's not
-	if completionReq.Application != "meal-planner" {
-		http.Error(w, fmt.Sprintf("router.Handler.handleCompletion: unsupported application: %s", completionReq.Application), http.StatusBadRequest)
-		return
-	}
-
-	roleRoute := fmt.Sprintf(
-		"%s/%s",
-		completionReq.Application,
-		completionReq.Role,
-	)
-
+	roleRoute := completionReq.Model
 	roleConfig, exists := h.fleetConfig.RoleRoutes[roleRoute]
 	if !exists {
-		http.Error(w, fmt.Sprintf("router.Handler.handleCompletion: unsupported role: %s", completionReq.Role), http.StatusBadRequest)
+		writeError(
+			w,
+			http.StatusBadRequest,
+			fmt.Sprintf("router.Handler.handleCompletion: unsupported model: %s", roleRoute),
+		)
 		return
 	}
 
 	if len(roleConfig.DeploymentIDs) == 0 {
-		http.Error(w, fmt.Sprintf("router.Handler.handleCompletion: no deployments configured for role: %s", completionReq.Role), http.StatusPreconditionFailed)
+		writeError(
+			w,
+			http.StatusPreconditionFailed,
+			fmt.Sprintf("router.Handler.handleCompletion: no deployments configured for model: %s", roleRoute),
+		)
 		return
 	}
 
-	//Route pick deployment
+	// TODO: route across all configured deployments instead of always selecting the first.
 	candidateDeploymentID := roleConfig.DeploymentIDs[0]
 	deploymentConfig := h.fleetConfig.Deployments[candidateDeploymentID]
 
 	targetClient, exists := h.providerClients[deploymentConfig.Connection]
 	if !exists {
-		http.Error(w, fmt.Sprintf("router.Handler.handleCompletion: no provider configured for role: %s", completionReq.Role), http.StatusPreconditionFailed)
-		return
-	}
-
-	providerReq, err := mapRequest(completionReq)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("router.Handler.handleCompletion: failed parsing request for role: %s", completionReq.Role), http.StatusBadRequest)
+		writeError(
+			w,
+			http.StatusPreconditionFailed,
+			fmt.Sprintf("router.Handler.handleCompletion: no provider configured for model: %s", roleRoute),
+		)
 		return
 	}
 
 	providerResp, err := targetClient.Complete(
 		r.Context(),
 		deploymentConfig.Model,
-		providerReq,
+		completionReq,
 	)
 
 	if err != nil {
 		var providerErr *provider.ProviderError
 
-		code := http.StatusInternalServerError
+		code := http.StatusBadGateway
 		if errors.As(err, &providerErr) {
 			switch providerErr.Category {
 			case provider.ErrorCategoryRateLimited:
@@ -121,78 +120,24 @@ func (h *Handler) handleCompletion(
 			}
 		}
 
-		http.Error(
+		writeError(
 			w,
-			fmt.Sprintf("router.Handler.handleCompletion: failed request for role: %s: %v", completionReq.Role, err),
 			code,
+			fmt.Sprintf("router.Handler.handleCompletion: failed request for model: %s: %v", roleRoute, err),
 		)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(providerResp)
+	writeJSON(w, http.StatusOK, providerResp)
 }
 
-func mapRequest(r completionRequest) (provider.CompletionRequest, error) {
-	var responseFormat *provider.ResponseFormat
-	if r.ResponseFormat != nil {
-		format := provider.ResponseFormat(*r.ResponseFormat)
-		switch format {
-		case provider.ResponseFormatText, provider.ResponseFormatJSON:
-			responseFormat = &format
-		default:
-			return provider.CompletionRequest{}, fmt.Errorf(
-				"unsupported response format %q",
-				*r.ResponseFormat,
-			)
-		}
-	}
-
-	messages := make([]provider.Message, len(r.Messages))
-	for messageIndex, message := range r.Messages {
-		toolCalls := make([]provider.ToolCall, len(message.ToolCalls))
-		for callIndex, call := range message.ToolCalls {
-			toolCalls[callIndex] = provider.ToolCall{
-				ID:        call.ID,
-				Name:      call.Name,
-				Arguments: call.Arguments,
-			}
-		}
-
-		messages[messageIndex] = provider.Message{
-			Role:       message.Role,
-			Content:    message.Content,
-			ToolCalls:  toolCalls,
-			ToolCallID: message.ToolCallID,
-		}
-	}
-
-	tools := make([]provider.Tool, len(r.Tools))
-	for toolIndex, tool := range r.Tools {
-		tools[toolIndex] = provider.Tool{
-			Name:        tool.Name,
-			Description: tool.Description,
-			Parameters:  tool.Parameters,
-		}
-	}
-
-	return provider.CompletionRequest{
-		Messages:        messages,
-		Tools:           tools,
-		Temperature:     r.Temperature,
-		ReasoningEffort: r.ReasoningEffort,
-		ResponseFormat:  responseFormat,
-	}, nil
-}
-
-func parseRequest(r *http.Request) (completionRequest, error) {
-	var providerReq completionRequest
+func parseRequest(r *http.Request) (openaiwire.ChatCompletionRequest, error) {
+	var providerReq openaiwire.ChatCompletionRequest
 
 	defer r.Body.Close()
 
 	if err := json.NewDecoder(r.Body).Decode(&providerReq); err != nil {
-		return completionRequest{}, fmt.Errorf(
+		return openaiwire.ChatCompletionRequest{}, fmt.Errorf(
 			"failed to decode provider request body: %w",
 			err,
 		)
@@ -202,4 +147,20 @@ func parseRequest(r *http.Request) (completionRequest, error) {
 	io.Copy(io.Discard, r.Body)
 
 	return providerReq, nil
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(
+		w,
+		status,
+		openaiwire.ErrorResponse{
+			Error: openaiwire.Error{Message: message},
+		},
+	)
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
 }

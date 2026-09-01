@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sergioazevedo/model-fleet/internal/openaiwire"
 	"github.com/sergioazevedo/model-fleet/internal/provider"
 )
 
@@ -30,8 +31,8 @@ func New(endpoint string, apiKey string, httpClient *http.Client) *Client {
 func (c *Client) Complete(
 	ctx context.Context,
 	modelID string,
-	request provider.CompletionRequest,
-) (provider.CompletionResult, error) {
+	request openaiwire.ChatCompletionRequest,
+) (openaiwire.ChatCompletionResponse, error) {
 	req, err := buildRequest(
 		ctx,
 		c.endpoint,
@@ -43,22 +44,22 @@ func (c *Client) Complete(
 		},
 	)
 	if err != nil {
-		return provider.CompletionResult{}, fmt.Errorf("failed to build request: %w", err)
+		return openaiwire.ChatCompletionResponse{}, fmt.Errorf("failed to build request: %w", err)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return provider.CompletionResult{}, fmt.Errorf("failed to complete request: %w", err)
+		return openaiwire.ChatCompletionResponse{}, fmt.Errorf("failed to complete request: %w", err)
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return provider.CompletionResult{}, normalizeErrorResponse(resp)
+		return openaiwire.ChatCompletionResponse{}, normalizeErrorResponse(resp)
 	}
 
 	result, err := decodeResponse(resp)
 	if err != nil {
-		return provider.CompletionResult{}, fmt.Errorf("failed to decode response: %w", err)
+		return openaiwire.ChatCompletionResponse{}, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	return result, nil
@@ -95,7 +96,7 @@ func normalizeErrorResponse(resp *http.Response) *provider.ProviderError {
 
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 
-	var respBody response
+	var respBody openaiwire.ErrorResponse
 	var cause error
 
 	if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
@@ -116,7 +117,7 @@ func buildRequest(
 	ctx context.Context,
 	endpoint string,
 	modelID string,
-	request provider.CompletionRequest,
+	request openaiwire.ChatCompletionRequest,
 	headers map[string]string,
 ) (*http.Request, error) {
 	targetURL := strings.TrimRight(endpoint, "/") + "/chat/completions"
@@ -144,36 +145,14 @@ func buildRequest(
 
 func encodeRequestBody(
 	modelID string,
-	req provider.CompletionRequest,
+	req openaiwire.ChatCompletionRequest,
 ) (string, error) {
-	messages := []message{}
-	for _, v := range req.Messages {
-		mappedToolCalls, err := mapToolCalls(v.ToolCalls)
-		if err != nil {
-			return "", fmt.Errorf("failed to map tool calls: %w", err)
-		}
-
-		messages = append(messages, message{
-			Role:       v.Role,
-			Content:    v.Content,
-			ToolCalls:  mappedToolCalls,
-			ToolCallID: v.ToolCallID,
-		})
+	req.Model = modelID
+	if len(req.Tools) > 0 && len(req.ToolChoice) == 0 {
+		req.ToolChoice = json.RawMessage(`"auto"`)
 	}
 
-	reqBody := request{
-		Model:           modelID,
-		Messages:        messages,
-		Temperature:     req.Temperature,
-		ReasoningEffort: req.ReasoningEffort,
-		ResponseFormat:  mapToResponseFormat(req.ResponseFormat),
-	}
-	if len(req.Tools) > 0 {
-		reqBody.Tools = mapToTools(req.Tools)
-		reqBody.ToolChoice = "auto"
-	}
-
-	body, err := json.Marshal(reqBody)
+	body, err := json.Marshal(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request body: %w", err)
 	}
@@ -181,93 +160,18 @@ func encodeRequestBody(
 	return string(body), nil
 }
 
-func mapToResponseFormat(format *provider.ResponseFormat) *responseFormat {
-	if format == nil {
-		return nil
-	}
-
-	return &responseFormat{Type: format.String()}
-}
-
-func mapToolCalls(toolCalls []provider.ToolCall) ([]toolCall, error) {
-	result := []toolCall{}
-	for _, call := range toolCalls {
-		if !json.Valid(call.Arguments) {
-			return nil, fmt.Errorf("invalid JSON in tool call arguments for ID %s", call.ID)
-		}
-
-		result = append(result, toolCall{
-			ID:   call.ID,
-			Type: "function",
-			Function: toolFunctionCall{
-				Name:      call.Name,
-				Arguments: string(call.Arguments),
-			},
-		})
-	}
-
-	return result, nil
-}
-
-func mapToTools(tools []provider.Tool) []tool {
-	result := []tool{}
-	for _, t := range tools {
-		result = append(result, tool{
-			Type: "function",
-			Function: toolFunction{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  t.Parameters,
-			},
-		})
-	}
-
-	return result
-}
-
-func decodeResponse(resp *http.Response) (provider.CompletionResult, error) {
-	var respBody response
+func decodeResponse(resp *http.Response) (openaiwire.ChatCompletionResponse, error) {
+	var respBody openaiwire.ChatCompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
-		return provider.CompletionResult{}, fmt.Errorf("failed to decode response: %w", err)
+		return openaiwire.ChatCompletionResponse{}, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	// Drain remaining body
 	_, _ = io.Copy(io.Discard, resp.Body)
 
-	usage := provider.Usage{
-		PromptTokens:     respBody.Usage.PromptTokens,
-		CompletionTokens: respBody.Usage.CompletionTokens,
-		TotalTokens:      respBody.Usage.TotalTokens,
-	}
-
 	if len(respBody.Choices) == 0 {
-		return provider.CompletionResult{Usage: usage}, fmt.Errorf("no content generated")
+		return respBody, fmt.Errorf("no content generated")
 	}
 
-	var toolCalls []provider.ToolCall
-	for _, call := range respBody.Choices[0].Message.ToolCalls {
-		if !json.Valid([]byte(call.Function.Arguments)) {
-			return provider.CompletionResult{}, fmt.Errorf("invalid JSON in tool call arguments for ID %s", call.ID)
-		}
-
-		toolCalls = append(toolCalls, provider.ToolCall{
-			ID:        call.ID,
-			Name:      call.Function.Name,
-			Arguments: json.RawMessage(call.Function.Arguments),
-		})
-	}
-
-	data := respBody.Choices[0]
-
-	return provider.CompletionResult{
-		Response: provider.CompletionResponse{
-			Message: provider.Message{
-				Role:      data.Message.Role,
-				Content:   data.Message.Content,
-				ToolCalls: toolCalls,
-			},
-			FinishReason: data.FinishReason,
-		},
-		Usage: usage,
-	}, nil
+	return respBody, nil
 }

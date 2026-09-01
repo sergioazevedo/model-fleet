@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/sergioazevedo/model-fleet/internal/openaiwire"
 	"github.com/sergioazevedo/model-fleet/internal/provider"
 	"github.com/sergioazevedo/model-fleet/internal/provider/openaicompatible"
 	"github.com/sergioazevedo/model-fleet/internal/provider/providertest"
@@ -53,36 +54,43 @@ func TestClient_Complete(t *testing.T) {
 		resultBody := `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{}}`
 		httpClient, spy := providertest.NewHTTPClient(resultBody, http.StatusOK)
 		client := openaicompatible.New(endpoint, "test-api-key", httpClient)
-		responseFormat := provider.ResponseFormatJSON
+		responseFormat := &openaiwire.ResponseFormat{Type: "json_object"}
 
 		_, err := client.Complete(
 			context.Background(),
 			modelID,
-			provider.CompletionRequest{
-				Messages: []provider.Message{
+			openaiwire.ChatCompletionRequest{
+				Model: "meal-planner/analyst",
+				Messages: []openaiwire.Message{
 					{Role: "user", Content: "Suggest a simple dinner"},
 					{
 						Role: "assistant",
-						ToolCalls: []provider.ToolCall{
+						ToolCalls: []openaiwire.ToolCall{
 							{
-								ID:        "call-1",
-								Name:      "find_recipe",
-								Arguments: json.RawMessage(`{"query":"pasta"}`),
+								ID:   "call-1",
+								Type: openaiwire.ToolTypeFunction,
+								Function: openaiwire.FunctionCall{
+									Name:      "find_recipe",
+									Arguments: `{"query":"pasta"}`,
+								},
 							},
 						},
 					},
 					{Role: "tool", Content: "Pasta primavera", ToolCallID: "call-1"},
 				},
-				Tools: []provider.Tool{
+				Tools: []openaiwire.Tool{
 					{
-						Name:        "find_recipe",
-						Description: "Find a recipe",
-						Parameters:  json.RawMessage(`{"type":"object"}`),
+						Type: openaiwire.ToolTypeFunction,
+						Function: openaiwire.FunctionDefinition{
+							Name:        "find_recipe",
+							Description: "Find a recipe",
+							Parameters:  json.RawMessage(`{"type":"object"}`),
+						},
 					},
 				},
 				Temperature:     ptr(0.2),
 				ReasoningEffort: ptr("medium"),
-				ResponseFormat:  &responseFormat,
+				ResponseFormat:  responseFormat,
 			},
 		)
 
@@ -125,30 +133,35 @@ func TestClient_Complete(t *testing.T) {
 		result, err := client.Complete(
 			context.Background(),
 			modelID,
-			provider.CompletionRequest{
-				Messages: []provider.Message{
+			openaiwire.ChatCompletionRequest{
+				Messages: []openaiwire.Message{
 					{Role: "user", Content: "Suggest a simple dinner"},
 				},
 			},
 		)
 		require.NoError(t, err)
 
-		want := provider.CompletionResult{
-			Response: provider.CompletionResponse{
-				Message: provider.Message{
-					Role:    "assistant",
-					Content: "Try pasta",
-					ToolCalls: []provider.ToolCall{
-						{
-							ID:        "call-1",
-							Name:      "find_recipe",
-							Arguments: json.RawMessage(`{"query":"pasta"}`),
+		want := openaiwire.ChatCompletionResponse{
+			Choices: []openaiwire.Choice{
+				{
+					Message: openaiwire.Message{
+						Role:    "assistant",
+						Content: "Try pasta",
+						ToolCalls: []openaiwire.ToolCall{
+							{
+								ID:   "call-1",
+								Type: openaiwire.ToolTypeFunction,
+								Function: openaiwire.FunctionCall{
+									Name:      "find_recipe",
+									Arguments: `{"query":"pasta"}`,
+								},
+							},
 						},
 					},
+					FinishReason: "tool_calls",
 				},
-				FinishReason: "tool_calls",
 			},
-			Usage: provider.Usage{
+			Usage: openaiwire.Usage{
 				PromptTokens:     10,
 				CompletionTokens: 2,
 				TotalTokens:      12,
@@ -189,7 +202,7 @@ func TestClient_Complete(t *testing.T) {
 				_, err := client.Complete(
 					context.Background(),
 					modelID,
-					provider.CompletionRequest{},
+					openaiwire.ChatCompletionRequest{},
 				)
 
 				var providerErr *provider.ProviderError
