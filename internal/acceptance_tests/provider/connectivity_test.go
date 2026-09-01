@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sergioazevedo/model-fleet/internal/openaiwire"
 	"github.com/sergioazevedo/model-fleet/internal/provider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,6 @@ import (
 
 type connectivityTestConfig struct {
 	APIKeyEnv string
-	Endpoint  string
 	ModelID   string
 	NewClient func(string, *http.Client) provider.Client
 }
@@ -38,12 +38,9 @@ func runConnectivityTest(t *testing.T, config connectivityTestConfig) {
 
 	result, err := client.Complete(
 		ctx,
-		provider.ModelDeployment{
-			ModelID:  config.ModelID,
-			Endpoint: config.Endpoint,
-		},
-		provider.CompletionRequest{
-			Messages: []provider.Message{
+		config.ModelID,
+		openaiwire.ChatCompletionRequest{
+			Messages: []openaiwire.Message{
 				{Role: "user", Content: "Reply with one word: connected"},
 			},
 			Temperature: &temperature,
@@ -51,8 +48,9 @@ func runConnectivityTest(t *testing.T, config connectivityTestConfig) {
 	)
 
 	require.NoError(t, err)
-	assert.Equal(t, "assistant", result.Response.Message.Role)
-	assert.NotEmpty(t, result.Response.Message.Content)
-	assert.NotEmpty(t, result.Response.FinishReason)
+	require.NotEmpty(t, result.Choices)
+	assert.Equal(t, "assistant", result.Choices[0].Message.Role)
+	assert.NotEmpty(t, result.Choices[0].Message.Content)
+	assert.NotEmpty(t, result.Choices[0].FinishReason)
 	assert.Positive(t, result.Usage.TotalTokens)
 }

@@ -11,10 +11,9 @@ import (
 func TestMistralClient_Connectivity(t *testing.T) {
 	runConnectivityTest(t, connectivityTestConfig{
 		APIKeyEnv: "MISTRAL_API_KEY",
-		Endpoint:  "https://api.mistral.ai/v1",
 		ModelID:   "mistral-small-2603",
 		NewClient: func(apiKey string, httpClient *http.Client) provider.Client {
-			return mistral.New(apiKey, httpClient)
+			return mistral.New("https://api.mistral.ai/v1", apiKey, httpClient)
 		},
 	})
 }

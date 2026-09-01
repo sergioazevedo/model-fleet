@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/sergioazevedo/model-fleet/internal/provider"
+	"github.com/sergioazevedo/model-fleet/internal/openaiwire"
 	"github.com/sergioazevedo/model-fleet/internal/provider/openaicompatible"
 )
 
@@ -12,16 +12,20 @@ type MistralClient struct {
 	client *openaicompatible.Client
 }
 
-func New(apiKey string, httpClient *http.Client) *MistralClient {
+func New(endpoint string, apiKey string, httpClient *http.Client) *MistralClient {
 	return &MistralClient{
-		client: openaicompatible.New(apiKey, httpClient),
+		client: openaicompatible.New(
+			endpoint,
+			apiKey,
+			httpClient,
+		),
 	}
 }
 
 func (c *MistralClient) Complete(
 	ctx context.Context,
-	deployment provider.ModelDeployment,
-	request provider.CompletionRequest,
-) (provider.CompletionResult, error) {
-	return c.client.Complete(ctx, deployment, request)
+	modelID string,
+	request openaiwire.ChatCompletionRequest,
+) (openaiwire.ChatCompletionResponse, error) {
+	return c.client.Complete(ctx, modelID, request)
 }
