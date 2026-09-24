@@ -55,11 +55,15 @@ jobs:
           DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: |
           set -euo pipefail
           : "${DEPLOY_TARGET:?Set the DEPLOY_TARGET production secret}"
           : "${DEPLOY_KEY:?Set the DEPLOY_KEY production secret}"
           : "${DEPLOY_KNOWN_HOSTS:?Set the DEPLOY_KNOWN_HOSTS production secret}"
+          : "${GROQ_API_KEY:?Set the GROQ_API_KEY production secret}"
+          : "${MISTRAL_API_KEY:?Set the MISTRAL_API_KEY production secret}"
 
           mkdir -p "$HOME/.ssh"
           chmod 700 "$HOME/.ssh"
