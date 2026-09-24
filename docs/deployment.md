@@ -57,30 +57,31 @@ another terminal:
 ssh -N -L 4545:127.0.0.1:4545 ubuntu@YOUR_HOST
 ```
 
-The current Meal Planner eval uses `http://localhost:4545`, so the tunnel makes
-that URL reach the remote service. Its GitHub Actions runner will also need a
-tunnel or a locally started router before that eval can run in CI.
+For a Meal Planner eval configured to use `http://localhost:4545`, the tunnel
+makes that URL reach the remote service. A GitHub Actions runner using the same
+URL also needs a tunnel or a locally started router.
 
 ## Automatic deployment from GitHub Actions
 
-The [CI workflow](../.github/workflows/ci.yml) runs the race-enabled Go suite
-on pushes and pull requests. A successful push to `main` then deploys to the
-server. Set the deployment secrets in this repository's `production`
-environment. The provider keys can be repository secrets or `production`
-environment secrets:
+The [CI workflow](../.github/workflows/ci.yml) defines race-enabled Go tests
+for pushes and pull requests, followed by deployment on a successful push to
+`main`. Once the workflow is merged into `main`, each successful push attempts
+deployment; the server setup and secrets must be ready first. Set these three
+secrets in this repository's `production` environment:
 
 | Secret | Value |
 | --- | --- |
 | `DEPLOY_TARGET` | SSH target, such as `ubuntu@YOUR_HOST` |
 | `DEPLOY_KEY` | Private SSH key authorized for that account |
 | `DEPLOY_KNOWN_HOSTS` | Verified SSH host-key line for `YOUR_HOST` |
-| `GROQ_API_KEY` | Groq provider key written to `router.env` |
-| `MISTRAL_API_KEY` | Mistral provider key written to `router.env` |
 
 You can obtain a host-key line with `ssh-keyscan`, but verify its fingerprint
 against the server's own SSH host key before storing it. The workflow requires
-host-key checking. The API keys may already exist as repository secrets for the
-provider acceptance workflow; that workflow cannot read secrets scoped only to
-the `production` environment. The deploy job can use repository secrets or
-`production` environment secrets. Set all five secrets before merging the
-deployment workflow into `main`.
+host-key checking.
+
+The deploy job also requires `GROQ_API_KEY` and `MISTRAL_API_KEY` to write the
+server's `router.env`. Existing repository secrets with those names already
+satisfy this requirement; they do not need to be duplicated in `production`.
+You can instead set them in the `production` environment, but the separate
+provider acceptance workflow cannot read environment-scoped secrets unless it
+also uses that environment.
