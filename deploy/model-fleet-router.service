@@ -1,0 +1,14 @@
+[Unit]
+Description=Model Fleet router
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/model-fleet/router.env
+Environment=MODEL_FLEET_LISTEN_ADDR=127.0.0.1:4545
+ExecStart=%h/.local/bin/model-fleet-router
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

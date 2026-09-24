@@ -49,7 +49,7 @@ func main() {
 	)
 
 	server := &http.Server{
-		Addr:    ":4545",
+		Addr:    listenAddr(),
 		Handler: routerHandler,
 	}
 
@@ -57,6 +57,13 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func listenAddr() string {
+	if addr := os.Getenv("MODEL_FLEET_LISTEN_ADDR"); addr != "" {
+		return addr
+	}
+	return ":4545"
 }
 
 func buildProviderClients(
