@@ -62,7 +62,7 @@ echo "Building Model Fleet for linux/$goarch..."
 
 ssh "${ssh_options[@]}" "$target" 'mkdir -p "$HOME/.local/bin" "$HOME/.config/systemd/user" && install -d -m 700 "$HOME/.config/model-fleet" && rm -f "$HOME/.config/model-fleet/router.env.next"'
 scp "${ssh_options[@]}" "$build_dir/model-fleet-router" "$target:$remote_home/.local/bin/model-fleet-router.next"
-scp "${ssh_options[@]}" "$repo_root/deploy/model-fleet-router.service" "$target:$remote_home/.config/systemd/user/model-fleet-router.service.next"
+scp "${ssh_options[@]}" "$repo_root/systemd/model-fleet-router.service" "$target:$remote_home/.config/systemd/user/model-fleet-router.service.next"
 if [[ "$sync_credentials" == true ]]; then
   printf "GROQ_API_KEY='%s'\nMISTRAL_API_KEY='%s'\n" "$groq_key" "$mistral_key" |
     ssh "${ssh_options[@]}" "$target" 'umask 077; cat > "$HOME/.config/model-fleet/router.env.next"'

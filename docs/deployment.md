@@ -42,7 +42,9 @@ from your secret manager before running the first command-line deployment.
 The script accepts Linux `amd64` and `arm64` hosts. It installs
 `~/.local/bin/model-fleet-router` and
 `~/.config/systemd/user/model-fleet-router.service`, enables the service, and
-checks its local health endpoint. Useful remote checks:
+checks its local health endpoint. The service definition is kept in
+[`systemd/model-fleet-router.service`](../systemd/model-fleet-router.service).
+Useful remote checks:
 
 ```bash
 ssh ubuntu@YOUR_HOST 'systemctl --user status model-fleet-router.service'
