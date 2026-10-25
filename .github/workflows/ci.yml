@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   test:
@@ -31,3 +31,48 @@ jobs:
 
       - name: Run tests
         run: go test -race -count=1 ./...
+
+  deploy:
+    name: Deploy router
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Deploy over SSH
+        env:
+          DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_TARGET:?Set the DEPLOY_TARGET production secret}"
+          : "${DEPLOY_KEY:?Set the DEPLOY_KEY production secret}"
+          : "${DEPLOY_KNOWN_HOSTS:?Set the DEPLOY_KNOWN_HOSTS production secret}"
+          : "${GROQ_API_KEY:?Set the GROQ_API_KEY production secret}"
+          : "${MISTRAL_API_KEY:?Set the MISTRAL_API_KEY production secret}"
+
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          key_file="$RUNNER_TEMP/model-fleet-deploy-key"
+          known_hosts_file="$HOME/.ssh/known_hosts"
+          trap 'rm -f "$key_file" "$known_hosts_file"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$key_file"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$known_hosts_file"
+          chmod 600 "$key_file" "$known_hosts_file"
+          unset DEPLOY_KEY DEPLOY_KNOWN_HOSTS
+
+          ./scripts/deploy.sh "$DEPLOY_TARGET" "$key_file"

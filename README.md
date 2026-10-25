@@ -37,6 +37,8 @@ go run ./cmd/router
 ```
 
 The router listens on `http://localhost:4545`.
+Set `MODEL_FLEET_LISTEN_ADDR` to override the listen address. The deployment
+service binds to `127.0.0.1:4545` so it is reachable only on the host.
 
 Send an OpenAI-compatible chat completion request using a logical model name:
 
@@ -54,6 +56,10 @@ curl --include http://localhost:4545/v1/chat/completions \
 The response body reports the selected physical model in its standard `model`
 field. The `X-Model-Fleet-*` headers identify the provider, physical model, and
 deployment chosen by the router.
+
+For a Linux host, use the [deployment guide](docs/deployment.md) to set up the
+user-level service, deploy from the command line, and enable automatic
+deployment from GitHub Actions.
 
 ## Configuration
 
