@@ -6,7 +6,8 @@ host can reach it without a public port or reverse proxy. The deploy script
 builds a static Go binary on your computer or a GitHub runner, uploads it over
 SSH, restarts the service, and checks `GET /healthz`. When provider keys are
 supplied, it also writes the server's credential file. If the new binary does
-not become healthy, the script restores the previous binary and credentials.
+not become healthy, the script restores the previous binary, service unit, and
+credentials.
 
 ## One-time server setup
 

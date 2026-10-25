@@ -73,5 +73,6 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > "$key_file"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$known_hosts_file"
           chmod 600 "$key_file" "$known_hosts_file"
+          unset DEPLOY_KEY DEPLOY_KNOWN_HOSTS
 
           ./scripts/deploy.sh "$DEPLOY_TARGET" "$key_file"

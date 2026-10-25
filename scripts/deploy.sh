@@ -76,6 +76,7 @@ binary="$HOME/.local/bin/model-fleet-router"
 unit="$HOME/.config/systemd/user/model-fleet-router.service"
 credentials="$HOME/.config/model-fleet/router.env"
 credentials_updated=false
+unit_updated=false
 
 rollback() {
   if [[ "$credentials_updated" == true ]]; then
@@ -84,6 +85,14 @@ rollback() {
     else
       rm -f "$credentials"
     fi
+  fi
+  if [[ "$unit_updated" == true ]]; then
+    if [[ -f "$unit.previous" ]]; then
+      mv -f "$unit.previous" "$unit"
+    else
+      rm -f "$unit"
+    fi
+    systemctl --user daemon-reload || true
   fi
   if [[ -f "$binary.previous" ]]; then
     mv -f "$binary.previous" "$binary"
@@ -107,7 +116,13 @@ if [[ -f "$credentials.next" ]]; then
 fi
 mv -f "$binary.next" "$binary"
 chmod 755 "$binary"
+if [[ -f "$unit" ]]; then
+  cp -p "$unit" "$unit.previous"
+else
+  rm -f "$unit.previous"
+fi
 mv -f "$unit.next" "$unit"
+unit_updated=true
 if ! systemctl --user daemon-reload ||
   ! systemctl --user enable model-fleet-router.service ||
   ! systemctl --user restart model-fleet-router.service; then
@@ -118,7 +133,7 @@ fi
 for attempt in {1..15}; do
   if systemctl --user is-active --quiet model-fleet-router.service &&
     curl --fail --silent --show-error --max-time 2 http://127.0.0.1:4545/healthz >/dev/null 2>&1; then
-    rm -f "$credentials.previous"
+    rm -f "$credentials.previous" "$unit.previous"
     echo "Model Fleet is healthy on 127.0.0.1:4545"
     exit 0
   fi
